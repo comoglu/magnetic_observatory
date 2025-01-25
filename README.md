@@ -1,8 +1,8 @@
 # Magnetic Observatory Data Viewer
 
 A comprehensive Python application for visualizing and analyzing geomagnetic data from Turkish and Australian observatories.
+![magdata_viewer](https://github.com/user-attachments/assets/2ca3e9ef-bc94-44fa-b1de-f23ab6ccc7f7)
 
-![Magnetic Observatory Data Viewer](screenshot.png)
 
 ## Features
 
