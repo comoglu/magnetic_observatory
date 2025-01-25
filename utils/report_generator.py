@@ -146,7 +146,17 @@ class IntermagnetReportGenerator:
             countrycolor='rgb(80, 80, 80)',
             countrywidth=0.5,
             showframe=False,
-            resolution=50
+            resolution=50,
+            lataxis=dict(
+                showgrid=True,
+                gridwidth=0.5,
+                gridcolor='rgb(102, 102, 102)',
+            ),
+            lonaxis=dict(
+                showgrid=True,
+                gridwidth=0.5,
+                gridcolor='rgb(102, 102, 102)', 
+            )
         )
         
         fig.update_layout(
