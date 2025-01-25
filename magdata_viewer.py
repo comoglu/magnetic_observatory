@@ -4,28 +4,37 @@ Magnetic Observatory Data Viewer
 A comprehensive tool for visualizing and analyzing geomagnetic data.
 """
 
+# Standard library imports 
 import sys
 import os
+import asyncio
+import traceback
 from datetime import datetime
 from typing import Dict, Optional
 
-from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QDockWidget, QMenuBar, QStatusBar, QAction, QMessageBox, 
-    QFileDialog, QDialog, QDialogButtonBox
-)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+# Third-party imports
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 import aiohttp
-import asyncio
-import traceback
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QBuffer, QIODevice
+from PyQt5.QtWidgets import (
+    QAction, QApplication, QDialog, QDialogButtonBox, QDockWidget, 
+    QFileDialog, QHBoxLayout, QMainWindow, QMenuBar, QMessageBox,
+    QStatusBar, QTabWidget, QTextEdit, QVBoxLayout, QWidget
+)
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, landscape
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from PyQt5.QtWebEngineWidgets import QWebEngineView
 
+# Local imports
 from magnetic_observatory.utils.constants import STATION_INFO
 from magnetic_observatory.utils.data_handlers import DataFetchHandler, DataProcessor, ExportHandler
 from magnetic_observatory.ui.components import ControlPanel, DataTable, PlotPanel
 from magnetic_observatory.ui.analysis_dialog import AnalysisDialog
-import numpy as np
-import pandas as pd
-
 
 class DataFetchWorker(QThread):
     """Worker thread for asynchronous data fetching"""
@@ -130,14 +139,18 @@ class MagneticDataViewer(QMainWindow):
         
         # Export submenu
         export_menu = file_menu.addMenu('Export')
-        
+
         export_csv = QAction('Export CSV', self)
         export_csv.triggered.connect(lambda: self.export_data('csv'))
         export_menu.addAction(export_csv)
-        
+
         export_excel = QAction('Export Excel', self)
         export_excel.triggered.connect(lambda: self.export_data('excel'))
         export_menu.addAction(export_excel)
+
+        export_pdf = QAction('Export PDF Report', self)
+        export_pdf.triggered.connect(self.export_pdf)
+        export_menu.addAction(export_pdf)
         
         # Exit action
         file_menu.addSeparator()
@@ -317,7 +330,31 @@ class MagneticDataViewer(QMainWindow):
                 f"Failed to export data: {str(e)}"
             )
             self.statusBar().showMessage("Export failed", 3000)
+
+    def export_pdf(self):
+        if not self.current_data:
+            QMessageBox.warning(self, "Warning", "No data available for export.")
+            return
             
+        try:
+            filename, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export PDF",
+                "",
+                "PDF files (*.pdf)"
+            )
+            
+            if filename:
+                self.statusBar().showMessage("Generating INTERMAGNET report...")
+                from utils.report_generator import IntermagnetReportGenerator
+                generator = IntermagnetReportGenerator(self.current_data, self.current_station)
+                generator.generate_report(filename)
+                self.statusBar().showMessage(f"INTERMAGNET report exported successfully to {filename}", 3000)
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export report: {str(e)}")
+            self.statusBar().showMessage("Report export failed", 3000)
+
     def show_analysis(self):
         """Display the analysis dialog"""
         if not self.current_data:

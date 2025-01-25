@@ -78,8 +78,9 @@ class ControlPanel(QWidget):
         # Fetch button
         self.fetch_btn = QPushButton("Fetch Data")
         layout.addWidget(self.fetch_btn)
-        
+
         layout.addStretch()
+        self.station_select.currentTextChanged.emit(self.station_select.currentText())        
 
 class DataTable(QTableWidget):
     """Table display for magnetic data"""

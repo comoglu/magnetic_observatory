@@ -285,7 +285,7 @@ class AnalysisDialog(QDialog):
         try:
             # Create quality analyzer
             quality_analyzer = QualityAnalyzer(self.data, self.station_code)
-            
+            available_components = quality_analyzer.get_available_components()
             insights = []
             
             # 1. Data Gaps
@@ -299,11 +299,13 @@ class AnalysisDialog(QDialog):
             
             # 2. Spikes Detection
             spike_insights = {}
-            for component in ['H', 'D', 'Z']:
-                if component in self.data:
+            for component in available_components:
+                try:
                     spikes = quality_analyzer.detect_spikes(component)
                     if spikes:
                         spike_insights[component] = spikes
+                except ValueError:
+                    continue
             
             insights.append("\nSpike Detection:")
             if spike_insights:
@@ -326,7 +328,15 @@ class AnalysisDialog(QDialog):
                 insights.append("  No significant baseline jumps detected")
             
             # 4. Quality Metrics
-            quality_metrics = quality_analyzer.get_quality_metrics()
+            quality_metrics = {}
+            for comp in available_components:
+                try:
+                    metrics = quality_analyzer.get_quality_metrics()
+                    if comp in metrics:
+                        quality_metrics[comp] = metrics[comp]
+                except ValueError:
+                    continue
+                    
             insights.append("\nQuality Metrics:")
             for comp, metrics in quality_metrics.items():
                 insights.append(f"  {comp} Component:")
@@ -337,28 +347,35 @@ class AnalysisDialog(QDialog):
             # Update text area
             insights_text.setPlainText("\n".join(insights))
             
-            # Optional: Visualization of data quality metrics
-            fig = go.Figure()
-            components = list(quality_metrics.keys())
-            completeness = [metrics['completeness'] for metrics in quality_metrics.values()]
-            noise_levels = [metrics['noise_level'] for metrics in quality_metrics.values()]
-            stability = [metrics['stability'] for metrics in quality_metrics.values()]
-            
-            fig.add_trace(go.Bar(x=components, y=completeness, name='Completeness'))
-            fig.add_trace(go.Bar(x=components, y=noise_levels, name='Noise Level'))
-            fig.add_trace(go.Bar(x=components, y=stability, name='Stability'))
-            
-            fig.update_layout(
-                title='Data Quality Metrics',
-                barmode='group',
-                xaxis_title='Components',
-                yaxis_title='Metrics'
-            )
-            
-            browser.setHtml(fig.to_html(include_plotlyjs='cdn'))
+            # Visualization of data quality metrics
+            if quality_metrics:
+                fig = go.Figure()
+                
+                # Prepare data for visualization
+                components = list(quality_metrics.keys())
+                completeness = [metrics['completeness'] for metrics in quality_metrics.values()]
+                noise_levels = [metrics['noise_level'] for metrics in quality_metrics.values()]
+                stability = [metrics['stability'] for metrics in quality_metrics.values()]
+                
+                # Add traces for each metric
+                fig.add_trace(go.Bar(x=components, y=completeness, name='Completeness'))
+                fig.add_trace(go.Bar(x=components, y=noise_levels, name='Noise Level'))
+                fig.add_trace(go.Bar(x=components, y=stability, name='Stability'))
+                
+                fig.update_layout(
+                    title='Data Quality Metrics',
+                    barmode='group',
+                    xaxis_title='Components',
+                    yaxis_title='Metrics',
+                    height=500
+                )
+                
+                browser.setHtml(fig.to_html(include_plotlyjs='cdn'))
+            else:
+                browser.setHtml("<h3>No quality metrics available for visualization</h3>")
         
         except Exception as e:
-            error_msg = f"Quality Analysis Error: {str(e)}"
+            error_msg = f"Quality Analysis Note: {str(e)}"
             insights_text.setPlainText(error_msg)
         
         return tab
