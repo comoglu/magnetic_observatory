@@ -50,15 +50,19 @@ class QualityAnalyzer(BaseAnalyzer):
         return results
 
     def get_quality_metrics(self) -> Dict[str, Dict]:
-        """Calculate quality metrics for all components"""
+        """Calculate quality metrics for available components"""
         metrics = {}
+        # Use get_available_components to only process existing ones
         for component in self.get_available_components():
-            data = self.get_component_data(component)
-            metrics[component] = {
-                'completeness': self._calculate_completeness(data),
-                'noise_level': self._calculate_noise_level(data),
-                'stability': self._calculate_stability(data)
-            }
+            try:
+                data = self.get_component_data(component)
+                metrics[component] = {
+                    'completeness': self._calculate_completeness(data),
+                    'noise_level': self._calculate_noise_level(data),
+                    'stability': self._calculate_stability(data)
+                }
+            except ValueError:
+                continue  # Skip components with invalid data
         return metrics
 
     def _calculate_rolling_mean(self, data: np.ndarray, window: int = 60) -> np.ndarray:

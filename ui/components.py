@@ -78,8 +78,9 @@ class ControlPanel(QWidget):
         # Fetch button
         self.fetch_btn = QPushButton("Fetch Data")
         layout.addWidget(self.fetch_btn)
-        
+
         layout.addStretch()
+        self.station_select.currentTextChanged.emit(self.station_select.currentText())        
 
 class DataTable(QTableWidget):
     """Table display for magnetic data"""
@@ -158,8 +159,15 @@ class PlotPanel(QWidget):
                 y=0.95
             ),
             margin=dict(l=50, r=50, t=80, b=50),
-            plot_bgcolor='white'
+            plot_bgcolor='white',
+            xaxis=dict(showgrid=True, gridcolor='rgb(200, 200, 200)', gridwidth=0.5),
+            yaxis=dict(showgrid=True, gridcolor='rgb(200, 200, 200)', gridwidth=0.5)
         )
+
+        # Add grid for each subplot
+        for i in range(1, 5):
+            fig.update_xaxes(showgrid=True, gridcolor='rgb(200, 200, 200)', gridwidth=0.5, row=i, col=1)
+            fig.update_yaxes(showgrid=True, gridcolor='rgb(200, 200, 200)', gridwidth=0.5, row=i, col=1)
         
         self._update_axes(fig)
         

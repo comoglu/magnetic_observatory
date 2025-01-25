@@ -6,7 +6,7 @@ from PyQt5.QtWidgets import (
     QSplitter, QHBoxLayout
 )
 from PyQt5.QtWebEngineWidgets import QWebEngineView
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QUrl
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
@@ -22,6 +22,7 @@ from datetime import datetime
 from magnetic_observatory.analyzers.disturbance import DisturbanceAnalyzer
 from magnetic_observatory.analyzers.quality import QualityAnalyzer
 from magnetic_observatory.analyzers.orientation import OrientationAnalyzer
+import os
 
 class AnalysisDialog(QDialog):
     """Enhanced dialog for displaying comprehensive data analysis results"""
@@ -54,6 +55,8 @@ class AnalysisDialog(QDialog):
         self.tab_widget.addTab(self.create_disturbance_tab(), "Disturbance Analysis")
         self.tab_widget.addTab(self.create_quality_tab(), "Quality Analysis")
         self.tab_widget.addTab(self.create_statistics_tab(), "Statistics")
+        self.tab_widget.addTab(self.create_3d_visualization_tab(), "3D Visualization") 
+
         
         # Details panel (right side)
         details_panel = QWidget()
@@ -267,6 +270,131 @@ class AnalysisDialog(QDialog):
         
         return tab
 
+    # Add this method to the AnalysisDialog class
+    def create_3d_visualization_tab(self) -> QWidget:
+        """Create 3D visualization tab"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        browser = QWebEngineView()
+        browser.setMinimumHeight(600)
+        layout.addWidget(browser)
+        
+        try:
+            # Create CSV data as a string
+            csv_data = ['datetime,H,D,Z']
+            for i, dt in enumerate(self.data['datetime']):
+                h = self.data.get('H', [None])[i] if 'H' in self.data else self.data.get('X', [None])[i]
+                d = self.data.get('D', [None])[i] if 'D' in self.data else self.data.get('Y', [None])[i]
+                z = self.data.get('Z', [None])[i]
+                if all(v is not None for v in [h, d, z]):
+                    csv_data.append(f"{dt},{h},{d},{z}")
+            
+            csv_string = '\n'.join(csv_data)
+            
+            # Create 3D visualization HTML with embedded data
+            html_content = '''<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/react/17.0.2/umd/react.production.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/17.0.2/umd/react-dom.production.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.7.2/prop-types.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.1.12/Recharts.min.js"></script>
+        <style>
+            body { margin: 0; padding: 20px; }
+            #root { width: 100%; height: 100vh; }
+        </style>
+    </head>
+    <body>
+        <div id="root"></div>
+        <script>
+            const { useState, useEffect } = React;
+            const { ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, Legend } = Recharts;
+
+            function Magnetic3DViewer() {
+                const [data, setData] = useState([]);
+                const [angle, setAngle] = useState(0);
+
+                useEffect(() => {
+                    const csvData = `''' + csv_string + '''`;
+                    const lines = csvData.split('\\n');
+                    const processed = lines.slice(1)
+                        .filter(line => line.trim())
+                        .map(line => {
+                            const [datetime, h, d, z] = line.split(',');
+                            return {
+                                x: parseFloat(h || 0),
+                                y: parseFloat(d || 0),
+                                z: parseFloat(z || 0),
+                                timestamp: datetime
+                            };
+                        })
+                        .filter(point => !isNaN(point.x) && !isNaN(point.y) && !isNaN(point.z));
+                    setData(processed);
+                }, []);
+
+                const transformedData = data.map(point => ({
+                    ...point,
+                    x: point.x * Math.cos(angle * Math.PI / 180) - point.y * Math.sin(angle * Math.PI / 180),
+                    y: point.x * Math.sin(angle * Math.PI / 180) + point.y * Math.cos(angle * Math.PI / 180)
+                }));
+
+                return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center' } },
+                    React.createElement('h2', null, '3D Magnetic Field Components'),
+                    React.createElement(ScatterChart, {
+                        width: 800,
+                        height: 400,
+                        margin: { top: 20, right: 20, bottom: 20, left: 20 }
+                    },
+                        React.createElement(CartesianGrid),
+                        React.createElement(XAxis, { type: 'number', dataKey: 'x', name: 'H/X', unit: 'nT' }),
+                        React.createElement(YAxis, { type: 'number', dataKey: 'y', name: 'D/Y', unit: 'nT' }),
+                        React.createElement(ZAxis, { type: 'number', dataKey: 'z', name: 'Z', unit: 'nT', range: [60, 600] }),
+                        React.createElement(Tooltip, { 
+                            cursor: { strokeDasharray: '3 3' },
+                            formatter: (value) => [`${value.toFixed(2)} nT`]
+                        }),
+                        React.createElement(Legend),
+                        React.createElement(Scatter, {
+                            name: 'Magnetic Field Vector',
+                            data: transformedData,
+                            fill: '#8884d8'
+                        })
+                    ),
+                    React.createElement('div', { style: { marginTop: '20px' } },
+                        React.createElement('input', {
+                            type: 'range',
+                            min: 0,
+                            max: 360,
+                            value: angle,
+                            onChange: (e) => setAngle(parseInt(e.target.value)),
+                            style: { width: '300px' }
+                        }),
+                        React.createElement('span', { style: { marginLeft: '10px' } },
+                            `Rotation: ${angle}°`
+                        )
+                    )
+                );
+            }
+
+            ReactDOM.render(
+                React.createElement(Magnetic3DViewer),
+                document.getElementById('root')
+            );
+        </script>
+    </body>
+    </html>'''
+            
+            browser.setHtml(html_content)
+
+        except Exception as e:
+            error_text = QTextEdit()
+            error_text.setPlainText(f"Error creating 3D visualization: {str(e)}")
+            layout.addWidget(error_text)
+        
+        return tab
+
     def create_quality_tab(self) -> QWidget:
         """Create data quality analysis tab"""
         tab = QWidget()
@@ -285,7 +413,7 @@ class AnalysisDialog(QDialog):
         try:
             # Create quality analyzer
             quality_analyzer = QualityAnalyzer(self.data, self.station_code)
-            
+            available_components = quality_analyzer.get_available_components()
             insights = []
             
             # 1. Data Gaps
@@ -299,11 +427,13 @@ class AnalysisDialog(QDialog):
             
             # 2. Spikes Detection
             spike_insights = {}
-            for component in ['H', 'D', 'Z']:
-                if component in self.data:
+            for component in available_components:
+                try:
                     spikes = quality_analyzer.detect_spikes(component)
                     if spikes:
                         spike_insights[component] = spikes
+                except ValueError:
+                    continue
             
             insights.append("\nSpike Detection:")
             if spike_insights:
@@ -326,7 +456,15 @@ class AnalysisDialog(QDialog):
                 insights.append("  No significant baseline jumps detected")
             
             # 4. Quality Metrics
-            quality_metrics = quality_analyzer.get_quality_metrics()
+            quality_metrics = {}
+            for comp in available_components:
+                try:
+                    metrics = quality_analyzer.get_quality_metrics()
+                    if comp in metrics:
+                        quality_metrics[comp] = metrics[comp]
+                except ValueError:
+                    continue
+                    
             insights.append("\nQuality Metrics:")
             for comp, metrics in quality_metrics.items():
                 insights.append(f"  {comp} Component:")
@@ -337,28 +475,35 @@ class AnalysisDialog(QDialog):
             # Update text area
             insights_text.setPlainText("\n".join(insights))
             
-            # Optional: Visualization of data quality metrics
-            fig = go.Figure()
-            components = list(quality_metrics.keys())
-            completeness = [metrics['completeness'] for metrics in quality_metrics.values()]
-            noise_levels = [metrics['noise_level'] for metrics in quality_metrics.values()]
-            stability = [metrics['stability'] for metrics in quality_metrics.values()]
-            
-            fig.add_trace(go.Bar(x=components, y=completeness, name='Completeness'))
-            fig.add_trace(go.Bar(x=components, y=noise_levels, name='Noise Level'))
-            fig.add_trace(go.Bar(x=components, y=stability, name='Stability'))
-            
-            fig.update_layout(
-                title='Data Quality Metrics',
-                barmode='group',
-                xaxis_title='Components',
-                yaxis_title='Metrics'
-            )
-            
-            browser.setHtml(fig.to_html(include_plotlyjs='cdn'))
+            # Visualization of data quality metrics
+            if quality_metrics:
+                fig = go.Figure()
+                
+                # Prepare data for visualization
+                components = list(quality_metrics.keys())
+                completeness = [metrics['completeness'] for metrics in quality_metrics.values()]
+                noise_levels = [metrics['noise_level'] for metrics in quality_metrics.values()]
+                stability = [metrics['stability'] for metrics in quality_metrics.values()]
+                
+                # Add traces for each metric
+                fig.add_trace(go.Bar(x=components, y=completeness, name='Completeness'))
+                fig.add_trace(go.Bar(x=components, y=noise_levels, name='Noise Level'))
+                fig.add_trace(go.Bar(x=components, y=stability, name='Stability'))
+                
+                fig.update_layout(
+                    title='Data Quality Metrics',
+                    barmode='group',
+                    xaxis_title='Components',
+                    yaxis_title='Metrics',
+                    height=500
+                )
+                
+                browser.setHtml(fig.to_html(include_plotlyjs='cdn'))
+            else:
+                browser.setHtml("<h3>No quality metrics available for visualization</h3>")
         
         except Exception as e:
-            error_msg = f"Quality Analysis Error: {str(e)}"
+            error_msg = f"Quality Analysis Note: {str(e)}"
             insights_text.setPlainText(error_msg)
         
         return tab
