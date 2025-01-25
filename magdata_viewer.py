@@ -23,6 +23,8 @@ from magnetic_observatory.utils.constants import STATION_INFO
 from magnetic_observatory.utils.data_handlers import DataFetchHandler, DataProcessor, ExportHandler
 from magnetic_observatory.ui.components import ControlPanel, DataTable, PlotPanel
 from magnetic_observatory.ui.analysis_dialog import AnalysisDialog
+import numpy as np
+import pandas as pd
 
 
 class DataFetchWorker(QThread):
@@ -244,7 +246,7 @@ class MagneticDataViewer(QMainWindow):
                 "No data available for export."
             )
             return
-            
+                
         try:
             file_dialog = QFileDialog(self)
             file_dialog.setDefaultSuffix(format_type)
@@ -256,33 +258,65 @@ class MagneticDataViewer(QMainWindow):
                     "",
                     "CSV files (*.csv)"
                 )
-            else:
+            else:  # Excel
                 filename, _ = file_dialog.getSaveFileName(
                     self,
                     "Export Excel",
                     "",
                     "Excel files (*.xlsx)"
                 )
-                
+                        
             if filename:
                 self.statusBar().showMessage(f"Exporting data to {format_type}...")
                 
+                # Prepare data for export
+                export_data = {}
+                for key in self.current_data:
+                    if isinstance(self.current_data[key], (list, np.ndarray)):
+                        # Convert numpy arrays to lists
+                        values = (self.current_data[key].tolist() 
+                                if isinstance(self.current_data[key], np.ndarray) 
+                                else self.current_data[key])
+                        # Handle NaN values
+                        export_data[key] = [
+                            '' if (isinstance(v, float) and np.isnan(v)) else v 
+                            for v in values
+                        ]
+                
                 if format_type == 'csv':
-                    ExportHandler.to_csv(self.current_data, filename)
-                else:
-                    ExportHandler.to_excel(self.current_data, filename)
-                    
+                    import csv
+                    with open(filename, 'w', newline='', encoding='utf-8') as f:
+                        writer = csv.writer(f)
+                        # Write headers
+                        headers = ['Time'] + [h for h in export_data.keys() if h != 'datetime']
+                        writer.writerow(headers)
+                        # Write data rows
+                        for i in range(len(export_data['datetime'])):
+                            row = [export_data['datetime'][i]]
+                            for h in headers[1:]:
+                                if i < len(export_data[h]):
+                                    row.append(export_data[h][i])
+                                else:
+                                    row.append('')
+                            writer.writerow(row)
+                else:  # Excel
+                    import pandas as pd
+                    df = pd.DataFrame(export_data)
+                    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+                        df.to_excel(writer, index=False, sheet_name='Magnetic Data')
+                        
                 self.statusBar().showMessage(
                     f"Data exported successfully to {filename}",
                     3000
                 )
-                
+                    
         except Exception as e:
             QMessageBox.critical(
                 self,
                 "Error",
                 f"Failed to export data: {str(e)}"
             )
+            self.statusBar().showMessage("Export failed", 3000)
             
     def show_analysis(self):
         """Display the analysis dialog"""
