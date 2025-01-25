@@ -13,9 +13,18 @@ A comprehensive Python application for visualizing and analyzing geomagnetic dat
   - Disturbance Detection (Sudden Storm Commencements, Substorms)
   - Quality Control
   - Statistical Analysis
+  - 3D Field Visualization
+  - Polar Plot Analysis
+  - Spectrogram Analysis
+- Real-time insights panel with:
+  - Component Statistics
+  - Frequency Analysis
+  - Quality Metrics
+  - Disturbance Detection
+  - Field Vector Analysis
 - Support for multiple data orientations (XYZ, HDZ)
-- Export capabilities (CSV, Excel)
-- K-index monitoring and alerts
+- Export capabilities (CSV, Excel, PDF Reports)
+- K-index monitoring
 
 ## Installation
 
@@ -42,6 +51,7 @@ pip install -r requirements.txt
 - scipy
 - aiohttp
 - xlsxwriter
+- PyQtWebEngine (for advanced visualizations)
 
 ## Usage
 
@@ -61,12 +71,15 @@ python magdata_viewer.py
 
 ## Data Analysis
 
-The application provides four main analysis tabs:
+The application provides seven main analysis tabs:
 
 1. **FFT Analysis**: Frequency analysis of magnetic components
 2. **Disturbance Analysis**: Detection of magnetic storms and events
 3. **Quality Analysis**: Data quality metrics and gap detection
 4. **Statistics**: Statistical analysis and coordinate transformations
+5. **3D Visualization**: Interactive 3D view of magnetic field components
+6. **Polar Plot**: Directional analysis of magnetic field variations
+7. **Spectrogram**: Time-frequency analysis for identifying wave patterns
 
 ## Supported Observatories
 

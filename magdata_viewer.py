@@ -401,12 +401,18 @@ class MagneticDataViewer(QMainWindow):
             self.handle_error(f"Failed to update station info: {str(e)}")
             
     def show_about(self):
-        """Display the about dialog"""
+        from PyQt5.QtGui import QDesktopServices
+        from PyQt5.QtWidgets import QVBoxLayout, QLabel, QDialog
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("About")
+        layout = QVBoxLayout()
+
         about_text = """
         <h2>Magnetic Observatory Data Viewer</h2>
-        <p>Version 2.0</p>
-        <p>A comprehensive tool for visualizing and analyzing geomagnetic data 
-        from Turkish and Australian observatories.</p>
+        <p>Created by Mustafa Comoglu<br>
+        <a href="https://github.com/comoglu">https://github.com/comoglu</a></p>
+        <p>Version 0.4</p>
         <p>Features:</p>
         <ul>
             <li>Real-time data fetching from INTERMAGNET</li>
@@ -414,12 +420,17 @@ class MagneticDataViewer(QMainWindow):
             <li>Advanced data analysis tools</li>
             <li>Data quality assessment</li>
             <li>Magnetic disturbance detection</li>
-            <li>Export capabilities (CSV, Excel)</li>
+            <li>Export capabilities (CSV, Excel,PDF)</li>
         </ul>
         <p>Data provided by INTERMAGNET through BGS GIN Services.</p>
         """
-        QMessageBox.about(self, "About", about_text)
-        
+
+        label = QLabel(about_text)
+        label.setOpenExternalLinks(True)
+        layout.addWidget(label)
+        dialog.setLayout(layout)
+        dialog.exec_() 
+
     def closeEvent(self, event):
         """Handle application closure"""
         try:

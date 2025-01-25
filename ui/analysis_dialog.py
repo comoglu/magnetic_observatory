@@ -22,8 +22,12 @@ from datetime import datetime
 from magnetic_observatory.analyzers.disturbance import DisturbanceAnalyzer
 from magnetic_observatory.analyzers.quality import QualityAnalyzer
 from magnetic_observatory.analyzers.orientation import OrientationAnalyzer
-import os
+from magnetic_observatory.analyzers.disturbance import DisturbanceAnalyzer
+from magnetic_observatory.analyzers.quality import QualityAnalyzer
 
+import os
+from scipy import signal
+import json
 class AnalysisDialog(QDialog):
     """Enhanced dialog for displaying comprehensive data analysis results"""
     
@@ -31,7 +35,10 @@ class AnalysisDialog(QDialog):
         super().__init__(parent)
         self.data = data
         self.station_code = station_code
-        
+            # Initialize analyzers
+        self.disturbance_analyzer = DisturbanceAnalyzer(data, station_code)
+        self.quality_analyzer = QualityAnalyzer(data, station_code)
+
         # Initialize UI first
         self.init_ui()
         
@@ -48,7 +55,7 @@ class AnalysisDialog(QDialog):
         
         # Tab widget (left side)
         self.tab_widget = QTabWidget()
-        self.tab_widget.setMinimumWidth(600)
+        self.tab_widget.setMinimumWidth(800)
         
         # Add tabs
         self.tab_widget.addTab(self.create_fft_tab(), "FFT Analysis")
@@ -56,10 +63,13 @@ class AnalysisDialog(QDialog):
         self.tab_widget.addTab(self.create_quality_tab(), "Quality Analysis")
         self.tab_widget.addTab(self.create_statistics_tab(), "Statistics")
         self.tab_widget.addTab(self.create_3d_visualization_tab(), "3D Visualization") 
+        self.tab_widget.addTab(self.create_polar_plot_tab(), "Polar Plot")
+        self.tab_widget.addTab(self.create_spectrogram_tab(), "Spectrogram")
 
         
         # Details panel (right side)
         details_panel = QWidget()
+        details_panel.setMinimumWidth(150)
         details_layout = QVBoxLayout(details_panel)
         
         # Details label
@@ -71,7 +81,12 @@ class AnalysisDialog(QDialog):
         self.detail_text = QTextEdit()  # Explicitly initialize self.detail_text
         self.detail_text.setReadOnly(True)
         details_layout.addWidget(self.detail_text)
-        
+
+        # Add tab change handler
+        self.tab_widget.currentChanged.connect(
+            lambda index: self.update_details(self.tab_widget.tabText(index))
+        )
+
         # Add widgets to main horizontal layout
         main_horizontal_layout.addWidget(self.tab_widget)
         main_horizontal_layout.addWidget(details_panel)
@@ -87,6 +102,151 @@ class AnalysisDialog(QDialog):
         )
         buttons.rejected.connect(self.reject)
         main_layout.addWidget(buttons)
+
+    def update_details(self, tab_name: str):
+        """Update details panel based on selected tab"""
+        if tab_name == "FFT Analysis":
+            self._show_fft_insights()
+        elif tab_name == "Disturbance Analysis":
+            self._show_disturbance_insights()
+        elif tab_name == "Quality Analysis":
+            self._show_quality_insights()
+        elif tab_name == "3D Visualization" or tab_name == "Polar Plot":
+            self._show_component_insights()
+        elif tab_name == "Spectrogram":
+            self._show_frequency_insights()
+        elif tab_name == "Statistics":
+            self._show_statistics_insights()
+        elif tab_name == "Polar Plot":
+            self._show_polar_insights()
+
+    def _show_component_insights(self):
+        components = ['H', 'D', 'Z']
+        insights = []
+        
+        for comp in components:
+            if comp in self.data:
+                values = np.array([x for x in self.data[comp] if x is not None])
+                insights.append(f"{comp} Component:")
+                insights.append(f"Mean: {np.mean(values):.2f} nT")
+                insights.append(f"Std Dev: {np.std(values):.2f} nT")
+                insights.append(f"Range: {np.ptp(values):.2f} nT\n")
+        
+        self.detail_text.setText("\n".join(insights))
+
+    def _show_fft_insights(self):
+        insights = []
+        components = ['H', 'D', 'Z']
+        
+        for comp in components:
+            if comp in self.data:
+                values = np.array([x for x in self.data[comp] if x is not None])
+                fft = np.fft.fft(values)
+                freqs = np.fft.fftfreq(len(values))
+                
+                # Find dominant frequencies
+                power = np.abs(fft)
+                top_idx = np.argsort(power)[-3:][::-1]
+                
+                insights.append(f"{comp} Component Frequencies:")
+                for i, idx in enumerate(top_idx, 1):
+                    insights.append(f"Peak {i}: {abs(freqs[idx]):.4f} Hz (Power: {power[idx]:.1f})")
+                insights.append("")
+                
+        self.detail_text.setText("\n".join(insights))
+
+    def _show_disturbance_insights(self):
+        insights = []
+        
+        # K-index summary
+        k_indices = self.disturbance_analyzer.calculate_k_index()
+        if k_indices:
+            max_k = max(k['k_value'] for k in k_indices)
+            min_k = min(k['k_value'] for k in k_indices)
+            insights.append(f"K-index range: {min_k}-{max_k}")
+            
+        # Sudden commencements
+        ssc = self.disturbance_analyzer.detect_sudden_commencements()
+        insights.append(f"\nDetected events: {len(ssc)}")
+        if ssc:
+            insights.append("Most significant SSC:")
+            max_ssc = max(ssc, key=lambda x: x['magnitude'])
+            insights.append(f"Time: {max_ssc['time']}")
+            insights.append(f"Magnitude: {max_ssc['magnitude']:.1f} nT")
+        
+        self.detail_text.setText("\n".join(insights))
+
+    def _show_quality_insights(self):
+        insights = []
+        
+        # Data gaps
+        gaps = self.quality_analyzer.analyze_data_gaps()
+        if gaps:
+            total_gap_time = sum((g['end_time'] - g['start_time']).total_seconds() for g in gaps)
+            insights.append(f"Data gaps: {len(gaps)}")
+            insights.append(f"Total gap time: {total_gap_time/60:.1f} minutes")
+        
+        # Quality metrics
+        metrics = self.quality_analyzer.get_quality_metrics()
+        for comp, metric in metrics.items():
+            insights.append(f"\n{comp} Quality:")
+            insights.append(f"Completeness: {metric['completeness']:.1%}")
+            insights.append(f"Noise level: {metric['noise_level']:.2f}")
+        
+        self.detail_text.setText("\n".join(insights))
+
+    def _show_frequency_insights(self):
+        insights = []
+        components = ['H', 'D', 'Z']
+        
+        for comp in components:
+            if comp in self.data:
+                values = np.array([x for x in self.data[comp] if x is not None])
+                f, t, Sxx = signal.spectrogram(values, fs=1.0, nperseg=256)
+                
+                max_power_freq = f[np.argmax(np.mean(Sxx, axis=1))]
+                insights.append(f"{comp} Component:")
+                insights.append(f"Dominant frequency: {max_power_freq:.4f} Hz")
+                insights.append(f"Max power: {np.max(Sxx):.1f}\n")
+        
+        self.detail_text.setText("\n".join(insights))
+
+    def _show_statistics_insights(self):
+        insights = []
+        components = ['H', 'D', 'Z']
+        
+        for comp in components:
+            if comp in self.data:
+                values = np.array([x for x in self.data[comp] if x is not None])
+                insights.extend([
+                    f"{comp} Statistics:",
+                    f"Skewness: {stats.skew(values):.2f}",
+                    f"Kurtosis: {stats.kurtosis(values):.2f}",
+                    f"Q1: {np.percentile(values, 25):.2f}",
+                    f"Q3: {np.percentile(values, 75):.2f}\n"
+                ])
+        
+        self.detail_text.setText("\n".join(insights))
+
+    def _show_polar_insights(self):
+        insights = []
+        
+        if 'H' in self.data and 'D' in self.data:
+            h = np.array([x for x in self.data['H'] if x is not None])
+            d = np.array([x for x in self.data['D'] if x is not None])
+            
+            magnitude = np.sqrt(h**2 + d**2)
+            angle = np.arctan2(d, h) * 180 / np.pi
+            
+            insights.extend([
+                "Field Vector Analysis:",
+                f"Mean magnitude: {np.mean(magnitude):.2f} nT",
+                f"Max magnitude: {np.max(magnitude):.2f} nT",
+                f"Mean angle: {np.mean(angle):.2f}°",
+                f"Angular range: {np.ptp(angle):.2f}°"
+            ])
+        
+        self.detail_text.setText("\n".join(insights))
 
     def create_fft_tab(self) -> QWidget:
         """Create FFT analysis tab with enhanced analysis"""
@@ -391,6 +551,181 @@ class AnalysisDialog(QDialog):
         except Exception as e:
             error_text = QTextEdit()
             error_text.setPlainText(f"Error creating 3D visualization: {str(e)}")
+            layout.addWidget(error_text)
+        
+        return tab
+
+    def create_polar_plot_tab(self) -> QWidget:
+        """Create polar plot visualization tab"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        browser = QWebEngineView()
+        browser.setMinimumHeight(600)
+        layout.addWidget(browser)
+        
+        try:
+            # Prepare data
+            h_data = self.data.get('H', self.data.get('X', []))
+            d_data = self.data.get('D', self.data.get('Y', []))
+            times = self.data['datetime']
+            
+            # Create data string
+            data_points = []
+            for i, (h, d, t) in enumerate(zip(h_data, d_data, times)):
+                if h is not None and d is not None:
+                    data_points.append(f"{{'h': {h}, 'd': {d}, 'time': '{t}'}}")
+            
+            data_string = f"[{','.join(data_points)}]"
+            
+            html_content = '''<!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.24.2/plotly.min.js"></script>
+        <style>
+            body { margin: 0; padding: 20px; }
+            #plot { width: 100%; height: 600px; }
+        </style>
+    </head>
+    <body>
+        <div id="plot"></div>
+        <script>
+            const data = ''' + data_string + ''';
+            
+            const trace = {
+                type: 'scatterpolar',
+                r: data.map(d => Math.sqrt(d.h * d.h + d.d * d.d)),
+                theta: data.map(d => Math.atan2(d.d, d.h) * 180 / Math.PI),
+                mode: 'markers+lines',
+                marker: {
+                    color: Array.from({length: data.length}, (_, i) => i),
+                    colorscale: 'Viridis',
+                    size: 8,
+                    showscale: true,
+                    colorbar: {
+                        title: 'Time Progression'
+                    }
+                },
+                hovertemplate: 
+                    'H: %{customdata[0]:.2f} nT<br>' +
+                    'D: %{customdata[1]:.2f} nT<br>' +
+                    'Time: %{customdata[2]}<br>' +
+                    '<extra></extra>',
+                customdata: data.map(d => [d.h, d.d, d.time])
+            };
+
+            const layout = {
+                polar: {
+                    radialaxis: {
+                        title: 'Field Intensity (nT)',
+                        showgrid: true,
+                    },
+                    angularaxis: {
+                        tickmode: 'array',
+                        ticktext: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
+                        tickvals: [0, 45, 90, 135, 180, 225, 270, 315],
+                    }
+                },
+                title: 'Magnetic Field Polar Plot',
+                showlegend: false,
+                width: 800,
+                height: 600
+            };
+
+            Plotly.newPlot('plot', [trace], layout);
+        </script>
+    </body>
+    </html>'''
+            
+            browser.setHtml(html_content)
+
+        except Exception as e:
+            error_text = QTextEdit()
+            error_text.setPlainText(f"Error creating polar plot: {str(e)}")
+            layout.addWidget(error_text)
+        
+        return tab
+
+    def create_spectrogram_tab(self) -> QWidget:
+        """Create spectrogram visualization tab"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        browser = QWebEngineView()
+        browser.setMinimumHeight(600)
+        layout.addWidget(browser)
+        
+        try:
+            # Prepare data for all components
+            components = {'H': self.data.get('H', self.data.get('X', [])),
+                            'D': self.data.get('D', self.data.get('Y', [])),
+                            'Z': self.data.get('Z', [])}
+            
+            # Calculate spectrograms
+            spectrograms = {}
+            for comp_name, comp_data in components.items():
+                if comp_data:
+                    # Convert to numpy array and handle NaN
+                    data = np.array([x if x is not None else 0 for x in comp_data])
+                    
+                    # Calculate spectrogram using scipy
+                    f, t, Sxx = signal.spectrogram(data, fs=1.0, nperseg=256, noverlap=128)
+                    
+                    # Convert to list for JSON
+                    spectrograms[comp_name] = {
+                        'frequencies': f.tolist(),
+                        'times': t.tolist(),
+                        'power': Sxx.tolist()
+                    }
+            
+            html_content = '''<!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="UTF-8">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.24.2/plotly.min.js"></script>
+        <style>
+            body { margin: 0; padding: 20px; }
+            .plot { width: 100%; height: 300px; margin-bottom: 20px; }
+        </style>
+        </head>
+        <body>
+        <div id="plot-H" class="plot"></div>
+        <div id="plot-D" class="plot"></div>
+        <div id="plot-Z" class="plot"></div>
+        <script>
+            const spectrograms = ''' + json.dumps(spectrograms) + ''';
+            
+            for (const [comp, data] of Object.entries(spectrograms)) {
+                const trace = {
+                    z: data.power,
+                    x: data.times,
+                    y: data.frequencies,
+                    type: 'heatmap',
+                    colorscale: 'Viridis',
+                    colorbar: {
+                        title: 'Power'
+                    }
+                };
+
+                const layout = {
+                    title: `${comp} Component Spectrogram`,
+                    xaxis: {title: 'Time (samples)'},
+                    yaxis: {title: 'Frequency (Hz)'},
+                    height: 300
+                };
+
+                Plotly.newPlot(`plot-${comp}`, [trace], layout);
+            }
+        </script>
+        </body>
+        </html>'''
+            
+            browser.setHtml(html_content)
+
+        except Exception as e:
+            error_text = QTextEdit()
+            error_text.setPlainText(f"Error creating spectrogram: {str(e)}")
             layout.addWidget(error_text)
         
         return tab
