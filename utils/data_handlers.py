@@ -57,25 +57,46 @@ class DataProcessor:
         self.quality_analyzer = QualityAnalyzer(data, station_code)
         self.disturbance_analyzer = DisturbanceAnalyzer(data, station_code)
 
+    # In DataProcessor class:
     def process_data(self) -> Dict:
         """Process raw data and apply necessary transformations"""
         processed_data = self.data.copy()
+        print("Available components:", list(processed_data.keys()))
         
         # Convert timestamps
         if 'datetime' in processed_data:
             processed_data['datetime'] = [
                 self._normalize_timestamp(t) for t in processed_data['datetime']
             ]
-            
+                
         # Handle orientation conversions if needed
         try:
             orientation = self._detect_orientation()
+            print(f"Detected orientation: {orientation}")
+            
             if orientation == 'XYZ':
                 hdz_data = self.orientation_analyzer.convert_xyz_to_hdz()
                 processed_data.update(hdz_data)
-        except ValueError:
-            pass  # Keep original orientation if conversion fails
-            
+                
+            # Calculate S from HDZ components if entire S column is empty
+            if 'S' in processed_data and all(s is None for s in processed_data['S']):
+                print("Calculating S component...")
+                if 'H' in processed_data and 'Z' in processed_data:
+                    h = np.array([float(h) if h is not None else np.nan for h in processed_data['H']])
+                    z = np.array([float(z) if z is not None else np.nan for z in processed_data['Z']])
+                    print("H range:", np.nanmin(h), "-", np.nanmax(h))
+                    print("Z range:", np.nanmin(z), "-", np.nanmax(z))
+                    total_intensity = np.sqrt(h**2 + z**2)
+                    processed_data['S'] = total_intensity.tolist()
+                    print("S calculation successful")
+                else:
+                    print("Missing required components for S calculation")
+                    
+        except Exception as e:
+            print(f"Error in data processing: {str(e)}")
+            import traceback
+            traceback.print_exc()
+                
         return processed_data
 
     def validate_data(self) -> List[str]:

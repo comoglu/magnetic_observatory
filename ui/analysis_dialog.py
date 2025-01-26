@@ -60,8 +60,11 @@ class AnalysisDialog(QDialog):
         
         # Tab widget (left side)
         self.tab_widget = QTabWidget()
-        self.tab_widget.setMinimumWidth(800)
-        
+        self.tab_widget.setMinimumWidth(1000)
+
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)  # Add here
+        self.tab_widget.setMovable(True)                                       # Add here
+
         # Add tabs
         self.tab_widget.addTab(self.create_fft_tab(), "FFT Analysis")
         self.tab_widget.addTab(self.create_disturbance_tab(), "Disturbance Analysis")
@@ -72,10 +75,16 @@ class AnalysisDialog(QDialog):
         self.tab_widget.addTab(self.create_spectrogram_tab(), "Spectrogram")
         self.tab_widget.addTab(self.create_filtering_tab(), "Data Processing")
         self.tab_widget.addTab(self.create_solar_wind_tab(), "Solar Wind")
+        # In AnalysisDialog.init_ui
+        self.tab_widget.setMovable(True)  # Allow reordering tabs
+        self.tab_widget.setTabsClosable(True)  # Allow closing tabs
+        self.tab_widget.tabCloseRequested.connect(self.close_tab)
+
 
         # Details panel (right side)
         details_panel = QWidget()
         details_panel.setMinimumWidth(150)
+        details_panel.setMaximumWidth(150)
         details_layout = QVBoxLayout(details_panel)
         
         # Details label
@@ -108,6 +117,10 @@ class AnalysisDialog(QDialog):
         )
         buttons.rejected.connect(self.reject)
         main_layout.addWidget(buttons)
+
+    # Add method to handle tab closing
+    def close_tab(self, index):
+        self.tab_widget.removeTab(index)
 
     def update_details(self, tab_name: str):
         """Update details panel based on selected tab"""

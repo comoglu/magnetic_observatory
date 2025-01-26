@@ -123,7 +123,13 @@ class MagneticDataViewer(QMainWindow):
         self.data_table = DataTable()
         table_dock.setWidget(self.data_table)
         self.addDockWidget(Qt.BottomDockWidgetArea, table_dock)
-        
+
+        # In MagneticDataViewer.init_ui
+        control_dock.setFeatures(QDockWidget.DockWidgetMovable | 
+                                QDockWidget.DockWidgetFloatable)
+        table_dock.setFeatures(QDockWidget.DockWidgetMovable | 
+                            QDockWidget.DockWidgetFloatable)
+
         # Initialize menu
         self.init_menu()
         
