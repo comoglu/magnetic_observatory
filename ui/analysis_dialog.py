@@ -24,6 +24,10 @@ from magnetic_observatory.analyzers.quality import QualityAnalyzer
 from magnetic_observatory.analyzers.orientation import OrientationAnalyzer
 from magnetic_observatory.analyzers.disturbance import DisturbanceAnalyzer
 from magnetic_observatory.analyzers.quality import QualityAnalyzer
+from magnetic_observatory.analyzers.solar_wind import SolarWindAnalyzer
+import asyncio
+
+from PyQt5.QtWidgets import QGroupBox, QSpinBox, QDoubleSpinBox, QCheckBox, QFormLayout, QComboBox, QFileDialog
 
 import os
 from scipy import signal
@@ -38,6 +42,7 @@ class AnalysisDialog(QDialog):
             # Initialize analyzers
         self.disturbance_analyzer = DisturbanceAnalyzer(data, station_code)
         self.quality_analyzer = QualityAnalyzer(data, station_code)
+        self.solar_wind_analyzer = SolarWindAnalyzer()
 
         # Initialize UI first
         self.init_ui()
@@ -65,8 +70,9 @@ class AnalysisDialog(QDialog):
         self.tab_widget.addTab(self.create_3d_visualization_tab(), "3D Visualization") 
         self.tab_widget.addTab(self.create_polar_plot_tab(), "Polar Plot")
         self.tab_widget.addTab(self.create_spectrogram_tab(), "Spectrogram")
+        self.tab_widget.addTab(self.create_filtering_tab(), "Data Processing")
+        self.tab_widget.addTab(self.create_solar_wind_tab(), "Solar Wind")
 
-        
         # Details panel (right side)
         details_panel = QWidget()
         details_panel.setMinimumWidth(150)
@@ -929,5 +935,332 @@ class AnalysisDialog(QDialog):
         except Exception as e:
             error_msg = f"Statistics Analysis Error: {str(e)}"
             insights_text.setPlainText(error_msg)
+        
+        return tab
+
+    def create_filtering_tab(self) -> QWidget:
+        """Create filtering and baseline correction tab"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Filter options
+        filter_group = QGroupBox("Filtering")
+        filter_layout = QVBoxLayout()
+        
+        self.filter_type = QComboBox()
+        self.filter_type.addItems(['Butterworth', 'Moving Average', 'Savitzky-Golay'])
+        
+        self.filter_window = QSpinBox()
+        self.filter_window.setRange(3, 301)
+        self.filter_window.setSingleStep(2)
+        self.filter_window.setValue(11)
+        
+        self.cutoff_freq = QDoubleSpinBox()
+        self.cutoff_freq.setRange(0.01, 0.5)
+        self.cutoff_freq.setValue(0.1)
+        
+        apply_filter_btn = QPushButton("Apply Filter")
+        apply_filter_btn.clicked.connect(self._apply_filter)
+        
+        filter_layout.addWidget(QLabel("Filter Type:"))
+        filter_layout.addWidget(self.filter_type)
+        filter_layout.addWidget(QLabel("Window Size:"))
+        filter_layout.addWidget(self.filter_window)
+        filter_layout.addWidget(QLabel("Cutoff Frequency:"))
+        filter_layout.addWidget(self.cutoff_freq)
+        filter_layout.addWidget(apply_filter_btn)
+        filter_group.setLayout(filter_layout)
+        
+        # Baseline correction
+        baseline_group = QGroupBox("Baseline Correction")
+        baseline_layout = QVBoxLayout()
+        
+        self.baseline_method = QComboBox()
+        self.baseline_method.addItems(['Linear Detrend', 'Polynomial Fit', 'Moving Median'])
+        
+        self.polynomial_order = QSpinBox()
+        self.polynomial_order.setRange(1, 5)
+        self.polynomial_order.setValue(2)
+        
+        apply_baseline_btn = QPushButton("Apply Correction")
+        apply_baseline_btn.clicked.connect(self._apply_baseline)
+        
+        baseline_layout.addWidget(QLabel("Method:"))
+        baseline_layout.addWidget(self.baseline_method)
+        baseline_layout.addWidget(QLabel("Polynomial Order:"))
+        baseline_layout.addWidget(self.polynomial_order)
+        baseline_layout.addWidget(apply_baseline_btn)
+        baseline_group.setLayout(baseline_layout)
+        
+        # Plot area
+        self.filter_plot = QWebEngineView()
+        self.filter_plot.setMinimumHeight(400)
+        
+        layout.addWidget(filter_group)
+        layout.addWidget(baseline_group)
+        layout.addWidget(self.filter_plot)
+        
+        return tab
+
+    def _apply_filter(self):
+        try:
+            filter_type = self.filter_type.currentText()
+            window = self.filter_window.value()
+            cutoff = self.cutoff_freq.value()
+            
+            filtered_data = {}
+            for comp in ['H', 'D', 'Z']:
+                if comp in self.data:
+                    data = np.array([x if x is not None else np.nan for x in self.data[comp]])
+                    if filter_type == 'Moving Average':
+                        filtered_data[comp] = self._moving_average(data, window)
+                    elif filter_type == 'Savitzky-Golay':
+                        filtered_data[comp] = signal.savgol_filter(data, window, 3)
+                    elif filter_type == 'Butterworth':
+                        b, a = signal.butter(4, cutoff, 'low')
+                        filtered_data[comp] = signal.filtfilt(b, a, data)
+            
+            self._update_filter_plot(filtered_data)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Filtering failed: {str(e)}")
+
+    def _apply_baseline(self):
+        try:
+            method = self.baseline_method.currentText()
+            order = self.polynomial_order.value()
+            
+            corrected_data = {}
+            for comp in ['H', 'D', 'Z']:
+                if comp in self.data:
+                    data = np.array([x if x is not None else np.nan for x in self.data[comp]])
+                    if method == 'Linear Detrend':
+                        corrected_data[comp] = signal.detrend(data)
+                    elif method == 'Polynomial Fit':
+                        x = np.arange(len(data))
+                        mask = ~np.isnan(data)
+                        poly = np.polyfit(x[mask], data[mask], order)
+                        baseline = np.polyval(poly, x)
+                        corrected_data[comp] = data - baseline
+                    elif method == 'Moving Median':
+                        baseline = signal.medfilt(data, 101)
+                        corrected_data[comp] = data - baseline
+            
+            self._update_filter_plot(corrected_data)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Baseline correction failed: {str(e)}")
+
+    def _moving_average(self, data: np.ndarray, window: int) -> np.ndarray:
+        return np.convolve(data, np.ones(window)/window, mode='same')
+
+    def _update_filter_plot(self, processed_data: Dict):
+        fig = go.Figure()
+        colors = {'H': 'red', 'D': 'green', 'Z': 'blue'}
+        
+        for comp in processed_data:
+            # Original data
+            fig.add_trace(go.Scatter(
+                x=self.data['datetime'],
+                y=self.data[comp],
+                name=f'{comp} Original',
+                line=dict(color=colors[comp], dash='dot')
+            ))
+            
+            # Processed data
+            fig.add_trace(go.Scatter(
+                x=self.data['datetime'],
+                y=processed_data[comp],
+                name=f'{comp} Processed',
+                line=dict(color=colors[comp])
+            ))
+        
+        fig.update_layout(
+            title='Original vs Processed Data',
+            xaxis_title='Time',
+            yaxis_title='nT',
+            height=400
+        )
+        
+        self.filter_plot.setHtml(fig.to_html(include_plotlyjs='cdn'))    
+
+    def create_solar_wind_tab(self) -> QWidget:
+        """Create the solar wind analysis tab"""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        browser = QWebEngineView()
+        browser.setMinimumHeight(600)
+        layout.addWidget(browser)
+        
+        try:
+            # Create new event loop if needed
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+            # Fetch solar wind data
+            solar_wind_data = loop.run_until_complete(
+                self.solar_wind_analyzer.fetch_solar_wind_data()
+            )
+            
+            # Calculate correlations
+            correlations = self.solar_wind_analyzer.analyze_correlations(
+                self.data, solar_wind_data
+            )
+            
+            # Detect events
+            events = self.solar_wind_analyzer.detect_solar_events(solar_wind_data)
+            
+            # Create visualization
+            fig = make_subplots(
+                rows=3, cols=1,
+                subplot_titles=(
+                    'Solar Wind Parameters',
+                    'Magnetic-Solar Wind Correlations',
+                    'Detected Events'
+                ),
+                vertical_spacing=0.1,
+                row_heights=[0.4, 0.3, 0.3]
+            )
+            
+            # Plot solar wind parameters
+            fig.add_trace(
+                go.Scatter(
+                    x=solar_wind_data['datetime'],
+                    y=solar_wind_data['speed'],
+                    name='Speed (km/s)',
+                    line=dict(color='blue')
+                ),
+                row=1, col=1
+            )
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=solar_wind_data['datetime'],
+                    y=solar_wind_data['density'],
+                    name='Density (p/cm³)',
+                    line=dict(color='red')
+                ),
+                row=1, col=1
+            )
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=solar_wind_data['datetime'],
+                    y=solar_wind_data['temperature'],
+                    name='Temperature (K)',
+                    line=dict(color='green')
+                ),
+                row=1, col=1
+            )
+            
+            # Plot correlations
+            components = ['H', 'D', 'Z']
+            params = ['density', 'speed', 'temperature']
+            x_labels = []
+            y_values = []
+            p_values = []
+            
+            for comp in components:
+                for param in params:
+                    key = f"{comp}_{param}"
+                    if key in correlations:
+                        x_labels.append(f"{comp}-{param}")
+                        y_values.append(correlations[key]['correlation'])
+                        p_values.append(correlations[key]['p_value'])
+            
+            fig.add_trace(
+                go.Bar(
+                    x=x_labels,
+                    y=y_values,
+                    name='Correlation',
+                    text=[f'p={p:.3f}' for p in p_values],
+                    textposition='auto',
+                ),
+                row=2, col=1
+            )
+            
+            # Plot events
+            if events:
+                event_times = [e['time'] for e in events]
+                event_types = [', '.join(e['types']) for e in events]
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=event_times,
+                        y=[1] * len(events),  # All events at y=1
+                        mode='markers+text',
+                        name='Solar Wind Events',
+                        text=event_types,
+                        textposition='top center',
+                        marker=dict(
+                            size=10,
+                            symbol='triangle-up',
+                            color='red'
+                        )
+                    ),
+                    row=3, col=1
+                )
+            
+            # Update layout
+            fig.update_layout(
+                height=1000,
+                showlegend=True,
+                title='Solar Wind Analysis'
+            )
+            
+            # Update axes
+            fig.update_xaxes(title_text='Time', row=1, col=1)
+            fig.update_xaxes(title_text='Parameter Pair', row=2, col=1)
+            fig.update_xaxes(title_text='Time', row=3, col=1)
+            
+            fig.update_yaxes(title_text='Value', row=1, col=1)
+            fig.update_yaxes(title_text='Correlation Coefficient', row=2, col=1)
+            fig.update_yaxes(title_text='Events', row=3, col=1, showticklabels=False)
+            
+            # Add insights text
+            insights_text = QTextEdit()
+            insights_text.setReadOnly(True)
+            insights_text.setMaximumHeight(200)
+            
+            # Generate insights
+            insights = []
+            
+            # Correlation insights
+            significant_correlations = [
+                (x, y, p) for x, y, p in zip(x_labels, y_values, p_values)
+                if p < 0.05
+            ]
+            if significant_correlations:
+                insights.append("Significant Correlations:")
+                for label, corr, p in significant_correlations:
+                    insights.append(
+                        f"  • {label}: r={corr:.3f} (p={p:.3f})"
+                    )
+            
+            # Event insights
+            if events:
+                insights.append("\nDetected Events:")
+                for event in events[:5]:  # Show top 5 events
+                    event_time = event['time'].strftime('%Y-%m-%d %H:%M:%S')
+                    insights.append(
+                        f"  • {event_time}: {', '.join(event['types'])}"
+                    )
+                if len(events) > 5:
+                    insights.append(f"  ... and {len(events)-5} more events")
+            
+            insights_text.setText('\n'.join(insights))
+            layout.addWidget(insights_text)
+            
+            # Display plot
+            browser.setHtml(fig.to_html(include_plotlyjs='cdn'))
+            
+        except Exception as e:
+            error_text = QTextEdit()
+            error_text.setPlainText(f"Error analyzing solar wind data: {str(e)}")
+            layout.addWidget(error_text)
         
         return tab
