@@ -95,3 +95,15 @@ class OrientationAnalyzer(BaseAnalyzer):
             
         except ValueError as e:
             return False, str(e)
+
+    def get_total_intensity(self, orientation: str = 'auto') -> np.ndarray:
+        if orientation == 'XYZ':
+            x = self.get_component_data('X')
+            y = self.get_component_data('Y')
+            z = self.get_component_data('Z')
+            return np.sqrt(x**2 + y**2 + z**2)
+        
+        elif orientation == 'HDZ':
+            h = self.get_component_data('H')
+            z = self.get_component_data('Z')
+            return np.sqrt(h**2 + z**2)

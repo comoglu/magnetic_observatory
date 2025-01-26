@@ -99,6 +99,11 @@ class IntermagnetReportGenerator:
         story.append(Paragraph("Station Information", self.styles['Heading1']))
         story.append(Spacer(1, 12))
         
+        available_components = []
+        for comp in ['H', 'D', 'Z', 'X', 'Y', 'S', 'F']:
+            if comp in self.data and any(x is not None for x in self.data[comp]):
+                available_components.append(comp)
+            
         info_data = [
             ['Parameter', 'Value'],
             ['IAGA Code', self.station_code],
@@ -108,7 +113,8 @@ class IntermagnetReportGenerator:
             ['Geographic Longitude', f"{self.station_info.get('longitude', '')}°"],
             ['Elevation', f"{self.station_info.get('elevation', '')} m"],
             ['Institute', self.station_info.get('institute', '')],
-            ['Data Orientation', self.station_info.get('orientation', '')]
+            ['Data Orientation', self.station_info.get('orientation', '')],
+            ['Available Components', ', '.join(available_components)]
         ]
         
         table = Table(info_data, colWidths=[200, 300])
@@ -220,41 +226,45 @@ class IntermagnetReportGenerator:
             story.append(gap_table)
 
     def _create_timeseries_plot(self):
+        # Map S to F if S is not available
+        components_to_plot = []
+        for comp in ['H', 'D', 'Z', 'F']:
+            if comp == 'F' and 'S' in self.data:
+                comp = 'S'
+            if comp in self.data and any(x is not None for x in self.data[comp]):
+                components_to_plot.append(comp)
+
         fig = make_subplots(
-            rows=4, cols=1,
-            subplot_titles=('H Component', 'D Component', 'Z Component', 'F Component'),
+            rows=len(components_to_plot), cols=1,
+            subplot_titles=[f'{comp} Component' for comp in components_to_plot],
             shared_xaxes=True,
             vertical_spacing=0.08
         )
-        
-        # Convert datetime strings to numpy datetime64
+
         datetime_array = np.array([np.datetime64(t) for t in self.data['datetime']])
-        
-        components = ['H', 'D', 'Z', 'F']
-        colors = ['red', 'green', 'blue', 'black']
-        
-        for i, (comp, color) in enumerate(zip(components, colors), 1):
-            if comp in self.data:
-                values = np.array([x if x is not None else np.nan for x in self.data[comp]])
-                if comp == 'D':
-                    values = values * 60  # Convert to minutes
-                
-                fig.add_trace(
-                    go.Scatter(
-                        x=datetime_array,
-                        y=values,
-                        name=comp,
-                        line=dict(color=color, width=1)
-                    ),
-                    row=i, col=1
-                )
-        
+        colors = {'H': 'red', 'D': 'green', 'Z': 'blue', 'F': 'black', 'S': 'black'}
+
+        for i, comp in enumerate(components_to_plot, 1):
+            values = np.array([x if x is not None else np.nan for x in self.data[comp]])
+            if comp == 'D':
+                values = values * 60
+
+            fig.add_trace(
+                go.Scatter(
+                    x=datetime_array,
+                    y=values,
+                    name=comp,
+                    line=dict(color=colors[comp], width=1)
+                ),
+                row=i, col=1
+            )
+
         fig.update_layout(
-            height=800,
+            height=200 * len(components_to_plot),
             showlegend=True,
             title_text="Magnetic Components Time Series"
         )
-        
+
         return fig
 
     def _create_quality_plot(self, metrics):
